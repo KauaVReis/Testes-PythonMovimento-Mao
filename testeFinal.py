@@ -80,7 +80,7 @@ last_draw_point = None # Para desenhar linhas contínuas
 current_color = (255, 255, 255)  # branco
 current_thickness = 12 # Pincel normal
 
-# Câmera (para tela FOTO)
+# Câmera (para tela FOTO e agora DESENHO)
 photo_app_state = "IDLE" # IDLE, ARMING, POSING, CAPTURED
 photo_timer_start_time = 0
 photo_flash_start_time = 0
@@ -91,12 +91,10 @@ TIMER_POSING = 5
 game_state = "START"
 game_bird_y = HEIGHT // 2
 game_bird_radius = 25
-game_gravity = 0.8       # Gravidade (puxa para baixo)
-game_bird_vel = 0        # Velocidade vertical atual
-game_lift = -15          # Força do "pulo" (para cima)
+# --- Controle "Seguir o Dedo" ---
 game_pipes = []
-game_pipe_speed = 20     # Velocidade base dos canos
-game_pipe_gap = 220      # Vão base entre os canos
+game_pipe_speed = 20     # Velocidade base dos canos (MAIS DIFÍCIL)
+game_pipe_gap = 220      # Vão base entre os canos (MAIS DIFÍCIL)
 game_pipe_width = 120
 game_last_pipe_time = 0
 game_pipe_interval = 1.3 # Tempo entre os canos
@@ -141,14 +139,19 @@ BTN_MENU_JOGO = (730, 400, 1180, 550)
 BTN_VOLTAR = (1030, 620, 1260, 700) # Botão de Voltar Padrão
 BTN_GAME_RESTART = (WIDTH // 2 - 200, HEIGHT // 2 + 100, WIDTH // 2 + 200, HEIGHT // 2 + 200)
 
-# Novos botões para a paleta de desenho
+# Paleta de Desenho (Vertical na Direita)
 # Cores (BGR)
-BTN_DRAW_RED = (50, 20, 100, 70)
-BTN_DRAW_GREEN = (110, 20, 160, 70)
-BTN_DRAW_BLUE = (170, 20, 220, 70)
-BTN_DRAW_WHITE = (230, 20, 280, 70)
-BTN_DRAW_ERASER = (300, 20, 350, 70) # Borracha (cor preta)
-BTN_DRAW_CLEAR = (WIDTH - 220, 20, WIDTH - 50, 70) # Limpar tela
+PALETTE_X_START = 1080
+PALETTE_X_END = 1260
+BTN_DRAW_RED = (PALETTE_X_START, 20, PALETTE_X_END, 70)
+BTN_DRAW_GREEN = (PALETTE_X_START, 80, PALETTE_X_END, 130)
+BTN_DRAW_BLUE = (PALETTE_X_START, 140, PALETTE_X_END, 190)
+BTN_DRAW_YELLOW = (PALETTE_X_START, 200, PALETTE_X_END, 250)
+BTN_DRAW_BLACK = (PALETTE_X_START, 260, PALETTE_X_END, 310) # <-- Renomeado
+BTN_DRAW_WHITE = (PALETTE_X_START, 320, PALETTE_X_END, 370)
+BTN_DRAW_ERASER = (PALETTE_X_START, 380, PALETTE_X_END, 430)
+BTN_DRAW_CLEAR = (PALETTE_X_START, 440, PALETTE_X_END, 490)
+BTN_DRAW_PHOTO = (PALETTE_X_START, 500, PALETTE_X_END, 550) # Botão de Foto
 
 
 def draw_button(img, rect, text, bg_color=(60, 120, 190), is_selected=False):
@@ -165,7 +168,7 @@ def draw_button(img, rect, text, bg_color=(60, 120, 190), is_selected=False):
     font = cv2.FONT_HERSHEY_SIMPLEX
     scale = 1.3
     thickness = 3
-    # Ajusta o scale se o texto for muito grande para o botão (ex: Limpar)
+    # Ajusta o scale se o texto for muito grande para o botão (ex: Limpar, Reiniciar)
     text_size = cv2.getTextSize(text, font, scale, thickness)[0]
     if text_size[0] > (x2 - x1 - 20): # Se for maior que a largura do botão
         scale = 1.0 # Diminui a fonte
@@ -219,8 +222,9 @@ while True:
             
         handLms_nav = results.multi_hand_landmarks[nav_hand_index]
         
-        # Desenha a mão de navegação
-        mp_draw.draw_landmarks(img, handLms_nav, mp_hands.HAND_CONNECTIONS, estilo_ponto, estilo_linha)
+        # Desenha a mão de navegação (apenas se não estiver tirando foto no modo Desenho)
+        if not (current_screen == "DESENHO" and photo_app_state != "IDLE"):
+             mp_draw.draw_landmarks(img, handLms_nav, mp_hands.HAND_CONNECTIONS, estilo_ponto, estilo_linha)
 
         # Extrai landmarks da mão de navegação
         lm_list_nav = []
@@ -236,18 +240,19 @@ while True:
         # Detecta dedos da mão de navegação
         dedos_nav = detectar_dedos_vetorial(lm_list_nav)
         
-        # Lógica de Clique (Pinça)
-        pinch_dist = distancia(lm_list_nav[4], lm_list_nav[8]) # Polegar + Indicador
-        is_pinching = (pinch_dist < CLICK_DISTANCE)
-        
-        if is_pinching:
-            click_frames += 1
-        else:
-            click_frames = 0 # Reseta se a pinça soltar
+        # Lógica de Clique (Pinça) - (Não clica se estiver em contagem)
+        if photo_app_state == "IDLE": # Só permite clicar se não estiver em contagem
+            pinch_dist = distancia(lm_list_nav[4], lm_list_nav[8]) # Polegar + Indicador
+            is_pinching = (pinch_dist < CLICK_DISTANCE)
             
-        if click_frames == CLICK_THRESHOLD: # Exatamente no frame N
-            click_detected = True # Dispara um "clique" de 1 frame
-            print("CLICK DETECTED")
+            if is_pinching:
+                click_frames += 1
+            else:
+                click_frames = 0 # Reseta se a pinça soltar
+                
+            if click_frames == CLICK_THRESHOLD: # Exatamente no frame N
+                click_detected = True # Dispara um "clique" de 1 frame
+                print("CLICK DETECTED")
 
     else:
         # Se não houver mão, reseta o clique
@@ -282,6 +287,7 @@ while True:
                 current_screen = "DESENHO"
                 canvas.fill(0) # Limpa o canvas
                 last_draw_point = None
+                photo_app_state = "IDLE" # Garante que o timer da foto esteja resetado
             
             elif is_cursor_in_rect(cursor_pos, BTN_MENU_FOTO):
                 current_screen = "FOTO"
@@ -349,19 +355,78 @@ while True:
 
     # --- TELA DE DESENHO ---
     elif current_screen == "DESENHO":
-        # Desenha a nova paleta de cores
-        # Note que a cor do botão (bg_color) é a cor que ele representa
-        draw_button(img, BTN_DRAW_RED, "R", bg_color=(0,0,255), is_selected=(current_color == (0,0,255)))
-        draw_button(img, BTN_DRAW_GREEN, "G", bg_color=(0,255,0), is_selected=(current_color == (0,255,0)))
-        draw_button(img, BTN_DRAW_BLUE, "B", bg_color=(255,0,0), is_selected=(current_color == (255,0,0)))
-        draw_button(img, BTN_DRAW_WHITE, "W", bg_color=(255,255,255), is_selected=(current_color == (255,255,255)))
-        draw_button(img, BTN_DRAW_ERASER, "X", bg_color=(100,100,100), is_selected=(current_color == (0,0,0)))
         
-        draw_button(img, BTN_DRAW_CLEAR, "Limpar")
-        draw_button(img, BTN_VOLTAR, "Voltar")
+        # Lógica de Timer da Câmera (copiada da tela FOTO)
+        overlay_text = ""
+        countdown_text = ""
         
-        # Lógica de clique para os novos botões
-        if click_detected:
+        # A imagem que queremos salvar (câmera + canvas, ANTES da UI)
+        img_with_drawing = cv2.addWeighted(img.copy(), 1.0, canvas, 1.0, 0)
+        
+        # A imagem que vamos mostrar (com UI por cima)
+        img_display = img_with_drawing.copy()
+
+        # Lógica de estado da Câmera
+        if photo_app_state == "ARMING": 
+            time_elapsed = time.time() - photo_timer_start_time
+            countdown_value = TIMER_ARMING - int(time_elapsed)
+            
+            if countdown_value > 0:
+                countdown_text = str(countdown_value)
+                overlay_text = "Prepare-se..."
+            else:
+                photo_app_state = "POSING"
+                photo_timer_start_time = time.time()
+                print("Armado! Faca a pose...")
+        
+        elif photo_app_state == "POSING": 
+            time_elapsed = time.time() - photo_timer_start_time
+            countdown_value = TIMER_POSING - int(time_elapsed)
+            
+            if countdown_value > 0:
+                countdown_text = str(countdown_value)
+                overlay_text = "Faca a pose!"
+            else:
+                # Tirar a foto
+                filename = os.path.join(output_folder, f"foto_desenho_{int(time.time())}.jpg")
+                # Salva a imagem COM O DESENHO
+                cv2.imwrite(filename, img_with_drawing) 
+                print(f"Foto salva: {filename}")
+                
+                photo_app_state = "CAPTURED"
+                photo_flash_start_time = time.time()
+        
+        # Estado de feedback (flash)
+        if photo_app_state == "CAPTURED":
+            overlay_text = "FOTO CAPTURADA!"
+            if time.time() - photo_flash_start_time < 0.5:
+                # Aplica o flash na img_display
+                cv2.rectangle(img_display, (0, 0), (WIDTH, HEIGHT), (255, 255, 255), -1)
+            else:
+                photo_app_state = "IDLE" # Reseta
+                
+        # --- MUDANÇA: Desenha a nova paleta de cores (na img_display) ---
+        draw_button(img_display, BTN_DRAW_RED, "Vermelho", bg_color=(0,0,255), is_selected=(current_color == (0,0,255)))
+        draw_button(img_display, BTN_DRAW_GREEN, "Verde", bg_color=(0,255,0), is_selected=(current_color == (0,255,0)))
+        draw_button(img_display, BTN_DRAW_BLUE, "Azul", bg_color=(255,0,0), is_selected=(current_color == (255,0,0)))
+        draw_button(img_display, BTN_DRAW_YELLOW, "Amarelo", bg_color=(0,255,255), is_selected=(current_color == (0,255,255)))
+        
+        # --- MUDANÇA: Botão "Rosa" -> "Preto" (e lógica de seleção) ---
+        draw_button(img_display, BTN_DRAW_BLACK, "Preto", bg_color=(50,50,50), is_selected=(current_color == (1,1,1)))
+        # --- Fim da mudança ---
+        
+        draw_button(img_display, BTN_DRAW_WHITE, "Branco", bg_color=(255,255,255), is_selected=(current_color == (255,255,255)))
+        
+        # --- MUDANÇA: Lógica de seleção da Borracha ---
+        draw_button(img_display, BTN_DRAW_ERASER, "Borracha", bg_color=(100,100,100), is_selected=(current_color == (0,0,0)))
+        # --- Fim da mudança ---
+        
+        draw_button(img_display, BTN_DRAW_CLEAR, "Limpar")
+        draw_button(img_display, BTN_DRAW_PHOTO, "Foto") # Novo botão de foto
+        draw_button(img_display, BTN_VOLTAR, "Voltar")
+        
+        # Lógica de clique (só funciona se não estiver tirando foto)
+        if click_detected and photo_app_state == "IDLE":
             if is_cursor_in_rect(cursor_pos, BTN_VOLTAR):
                 current_screen = "MENU"
             
@@ -375,11 +440,21 @@ while True:
             elif is_cursor_in_rect(cursor_pos, BTN_DRAW_BLUE):
                 current_color = (255, 0, 0)
                 current_thickness = 12
+            elif is_cursor_in_rect(cursor_pos, BTN_DRAW_YELLOW):
+                current_color = (0, 255, 255)
+                current_thickness = 12
+            
+            # --- MUDANÇA: Clique no "Preto" (usa 1,1,1) ---
+            elif is_cursor_in_rect(cursor_pos, BTN_DRAW_BLACK):
+                current_color = (1, 1, 1) # MUDADO PARA "QUASE PRETO"
+                current_thickness = 12
+            # --- Fim da mudança ---
+                
             elif is_cursor_in_rect(cursor_pos, BTN_DRAW_WHITE):
                 current_color = (255, 255, 255)
                 current_thickness = 12
             
-            # Botão Borracha (Pincel preto e grosso)
+            # Botão Borracha (usa 0,0,0)
             elif is_cursor_in_rect(cursor_pos, BTN_DRAW_ERASER):
                 current_color = (0, 0, 0) # Cor do canvas
                 current_thickness = 40 # Borracha mais grossa
@@ -387,38 +462,54 @@ while True:
             # Botão Limpar Tela
             elif is_cursor_in_rect(cursor_pos, BTN_DRAW_CLEAR):
                 canvas.fill(0) # Preenche o canvas com preto
+            
+            # Botão de Foto
+            elif is_cursor_in_rect(cursor_pos, BTN_DRAW_PHOTO):
+                print("Botão de Foto clicado!")
+                photo_app_state = "ARMING"
+                photo_timer_start_time = time.time()
         
         # Proteção para não desenhar sobre a UI
-        # Verifica se o cursor está sobre QUALQUER botão da tela
         is_on_ui = (
             is_cursor_in_rect(cursor_pos, BTN_VOLTAR) or
             is_cursor_in_rect(cursor_pos, BTN_DRAW_RED) or
             is_cursor_in_rect(cursor_pos, BTN_DRAW_GREEN) or
             is_cursor_in_rect(cursor_pos, BTN_DRAW_BLUE) or
+            is_cursor_in_rect(cursor_pos, BTN_DRAW_YELLOW) or
+            is_cursor_in_rect(cursor_pos, BTN_DRAW_BLACK) or # <-- MUDANÇA
             is_cursor_in_rect(cursor_pos, BTN_DRAW_WHITE) or
             is_cursor_in_rect(cursor_pos, BTN_DRAW_ERASER) or
-            is_cursor_in_rect(cursor_pos, BTN_DRAW_CLEAR)
+            is_cursor_in_rect(cursor_pos, BTN_DRAW_CLEAR) or
+            is_cursor_in_rect(cursor_pos, BTN_DRAW_PHOTO)
         )
         
         # Gesto de desenhar: Pinca (polegar + indicador)
-        # Não desenha se a pinça estiver em cima de um botão
-        can_draw = is_pinching and not is_on_ui
+        # Não desenha se a pinça estiver em cima de um botão ou se estiver tirando foto
+        can_draw = is_pinching and not is_on_ui and photo_app_state == "IDLE"
 
         if can_draw:
-            if last_draw_point is None: # Se é o começo de um traço
-                last_draw_point = cursor_pos # Apenas marque o início
-            
-            # Usa a espessura da ferramenta atual
-            # Desenha a linha (grossa e suave)
-            cv2.line(canvas, last_draw_point, cursor_pos, current_color, current_thickness) # Usa espessura
-            last_draw_point = cursor_pos # Atualiza o último ponto
+            if last_draw_point is None:
+                last_draw_point = cursor_pos
+            cv2.line(canvas, last_draw_point, cursor_pos, current_color, current_thickness)
+            last_draw_point = cursor_pos
         else:
-            last_draw_point = None # Pinca solta, pare de desenhar (reseta o último ponto)
+            last_draw_point = None
         
-        # Combina o canvas com a imagem da câmera
-        img = cv2.addWeighted(img, 1.0, canvas, 1.0, 0)
+        # Desenha os textos da Câmera (se houver) sobre a 'img_display'
+        if overlay_text:
+            cv2.putText(img_display, overlay_text, (50, 70), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0,0,0), 6)
+            cv2.putText(img_display, overlay_text, (50, 70), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255,255,255), 2)
+        if countdown_text:
+            font_scale = 5.0; thickness = 15
+            text_size = cv2.getTextSize(countdown_text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, thickness)[0]
+            text_x = (WIDTH - text_size[0]) // 2 # Centralizado
+            text_y = (HEIGHT + text_size[1]) // 2     
+            cv2.putText(img_display, countdown_text, (text_x, text_y), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (0,0,0), thickness + 10)
+            cv2.putText(img_display, countdown_text, (text_x, text_y), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (0,0,255), thickness)
         
-        # (Lógica de clique do Voltar foi movida para cima, junto com os outros botões)
+        # (Troca 'img' por 'img_display' no imshow)
+        img = img_display
+        
     
     # --- TELA DA CÂMERA (FOTO) ---
     elif current_screen == "FOTO":
@@ -455,7 +546,7 @@ while True:
                 overlay_text = "Faca a pose!"
             else:
                 # Tirar a foto
-                filename = os.path.join(output_folder, f"foto_{int(time.time())}.jpg")
+                filename = os.path.join(output_folder, f"foto_normal_{int(time.time())}.jpg")
                 img_clean_flipped = cv2.flip(img_raw, 1) # Salva a imagem limpa e flipada
                 cv2.imwrite(filename, img_clean_flipped) 
                 print(f"Foto salva: {filename}")
@@ -469,9 +560,8 @@ while True:
             if time.time() - photo_flash_start_time < 0.5:
                 cv2.rectangle(img, (0, 0), (WIDTH, HEIGHT), (255, 255, 255), -1)
             else:
-                # --- MUDANÇA: Voltar ao Menu automaticamente ---
-                current_screen = "MENU" # Nova lógica (volta ao menu)
-                # --- Fim da mudança ---
+                # Volta ao Menu automaticamente
+                current_screen = "MENU"
                 
         # Desenhar textos da Câmera
         if overlay_text:
@@ -493,71 +583,44 @@ while True:
     # --- TELA DO JOGO ---
     elif current_screen == "JOGO" and pygame_ok:
         
-        # --- MUDANÇA: Fundo azul claro (MAIS SUAVE) ---
+        # Fundo azul claro (MAIS SUAVE)
         light_blue_bg = np.full_like(img, (255, 230, 200)) # BGR: Azul claro
         # 70% câmera, 30% fundo azul
         img = cv2.addWeighted(img, 0.7, light_blue_bg, 0.3, 0)
-        # --- Fim da mudança ---
         
-        # Lógica do Jogo (copiado de testeseguir.py)
+        # Lógica do Jogo
         if game_state == "START":
             cv2.putText(img, "FLAPPY DEDO", (WIDTH // 2 - 270, HEIGHT // 2 - 150), cv2.FONT_HERSHEY_SIMPLEX, 3, (0, 255, 255), 8)
-            # --- MUDANÇA: Texto de instrução revertido ---
             cv2.putText(img, "Controle o 'passaro' com o indicador", (WIDTH // 2 - 400, HEIGHT // 2 + 50), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 255, 255), 4)
-            # --- Fim da mudança ---
             
-            # --- MUDANÇA: Usar click_detected para começar ---
-            # if is_pinching: # Usa a pinça da mão principal
-            if click_detected: # Mais consistente
-            # --- Fim da mudança ---
+            if click_detected: # Começa com clique
                 game_state = "PLAYING"
                 game_start_time = time.time()
                 game_score = 0
                 game_pipes = []
                 game_bird_y = HEIGHT // 2
-                game_bird_vel = 0
 
         elif game_state == "PLAYING":
             
-            # --- MUDANÇA: Dificuldade Progressiva ---
-            # A cada 5 pontos, o jogo fica mais rápido e o vão diminui
+            # Dificuldade Progressiva
             difficulty_level = game_score // 5
-            # Velocidade aumenta em 2 a cada 5 pontos, com limite de 26
             current_pipe_speed = min(30, game_pipe_speed + difficulty_level * 2) 
-            # Vão diminui 10px a cada 5 pontos, com limite de 160px
             current_pipe_gap = max(120, game_pipe_gap - difficulty_level * 10) 
-            # --- Fim da mudança ---
-
-            # --- MUDANÇA: Lógica de Pulo (Flap) ---
-            # O "pulo" é acionado pela PINÇA (is_pinching)
-            # (Usamos click_detected para pular só UMA VEZ por pinça)
-            # if click_detected: # Usar o clique (pinçar e soltar) é mais justo
-            #      game_bird_vel = game_lift # Dá o impulso para cima
-            # --- Fim da mudança ---
             
-            # --- MUDANÇA: Controle com Física (Gravidade) ---
-            # Controle: O pássaro segue o indicador (cursor_pos[1] é o Y)
-            game_bird_y = cursor_pos[1] # <--- REMOVIDO (muito fácil)
-            
-            # Aplicar gravidade e velocidade
-            # game_bird_vel += game_gravity
-            # game_bird_y += int(game_bird_vel)
-            # --- Fim da mudança ---
+            # Controle: Seguir o Dedo
+            if results.multi_hand_landmarks:
+                game_bird_y = cursor_pos[1]
             
             # Lógica dos Canos
             current_time = time.time()
             if current_time - game_last_pipe_time > game_pipe_interval:
-                # --- MUDANÇA: Usa o vão dinâmico ---
                 h = random.randint(150, HEIGHT - 150 - current_pipe_gap)
-                # --- Fim da mudança ---
                 game_pipes.append({"x": WIDTH, "height": h, "color": (0, 200, 0)})
                 game_last_pipe_time = current_time
 
             new_pipes = []
             for pipe in game_pipes:
-                # --- MUDANÇA: Usa a velocidade dinâmica ---
                 pipe["x"] -= current_pipe_speed
-                # --- Fim da mudança ---
                 
                 x, h = pipe["x"], pipe["height"]
                 color = pipe["color"]
@@ -565,21 +628,18 @@ while True:
                 # Cano de cima
                 cv2.rectangle(img, (x, 0), (x + game_pipe_width, h), color, -1)
                 # Cano de baixo
-                # --- MUDANÇA: Usa o vão dinâmico ---
                 cv2.rectangle(img, (x, h + current_pipe_gap), (x + game_pipe_width, HEIGHT), color, -1)
 
                 # Colisão com canos
                 if (game_bird_y - game_bird_radius < h or game_bird_y + game_bird_radius > h + current_pipe_gap) and \
                    (WIDTH // 2 + game_bird_radius > x and WIDTH // 2 - game_bird_radius < x + game_pipe_width) and \
-                   game_state != "GAME_OVER": # Adiciona o check para rodar só uma vez
-                # --- Fim da mudança ---
+                   game_state != "GAME_OVER":
                     
-                    # --- MUDANÇA: Tirar foto ao perder ---
+                    # Tirar foto ao perder
                     filename = os.path.join(output_folder, f"foto_gameover_{int(time.time())}.jpg")
                     img_clean_flipped = cv2.flip(img_raw, 1) # Salva a imagem limpa
                     cv2.imwrite(filename, img_clean_flipped) 
                     print(f"Foto Game Over salva: {filename}")
-                    # --- Fim da mudança ---
 
                     game_state = "GAME_OVER"
                     if pygame_ok: pygame.mixer.music.stop()
@@ -598,12 +658,11 @@ while True:
             # Checa colisão com teto/chão
             if (game_bird_y - game_bird_radius <= 0 or game_bird_y + game_bird_radius >= HEIGHT) and game_state != "GAME_OVER":
                 
-                # --- MUDANÇA: Tirar foto ao perder ---
+                # Tirar foto ao perder
                 filename = os.path.join(output_folder, f"foto_gameover_{int(time.time())}.jpg")
                 img_clean_flipped = cv2.flip(img_raw, 1) # Salva a imagem limpa
                 cv2.imwrite(filename, img_clean_flipped) 
                 print(f"Foto Game Over salva: {filename}")
-                # --- Fim da mudança ---
 
                 game_state = "GAME_OVER"
                 if pygame_ok: pygame.mixer.music.stop()
@@ -619,7 +678,7 @@ while True:
             cv2.putText(img, "GAME OVER", (WIDTH // 2 - 280, HEIGHT // 2 - 150), cv2.FONT_HERSHEY_SIMPLEX, 3, (0, 0, 255), 10)
             cv2.putText(img, f"Pontos: {game_score}", (WIDTH // 2 - 120, HEIGHT // 2 + 50), cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 255, 255), 5)
             
-            # --- MUDANÇA: Lógica de botões (em vez de pinça) ---
+            # Lógica de botões (em vez de pinça)
             draw_button(img, BTN_GAME_RESTART, "REINICIAR", bg_color=(0, 200, 0))
             
             # Checa o clique (pinça) nos botões
@@ -631,18 +690,14 @@ while True:
                     game_score = 0
                     game_pipes = []
                     game_bird_y = HEIGHT // 2
-                    game_bird_vel = 0
                     if pygame_ok: pygame.mixer.music.play(-1) # Reinicia a música
                 
                 # O botão Sair (BTN_VOLTAR) será checado abaixo na UI
             
-            # --- Fim da mudança ---
-
         # Botão Voltar (sempre visível no jogo, incluindo Game Over)
         draw_button(img, BTN_VOLTAR, "Sair")
         
-        # --- MUDANÇA: Movido o clique do "Sair" para fora do "GAME_OVER" ---
-        # --- assim ele funciona no PLAYING e no GAME_OVER ---
+        # Checa clique no "Sair" (funciona no PLAYING e GAME_OVER)
         if click_detected and is_cursor_in_rect(cursor_pos, BTN_VOLTAR):
             current_screen = "MENU"
             if pygame_ok: pygame.mixer.music.stop() # Para a música ao sair
@@ -650,11 +705,13 @@ while True:
     # ------------------- Desenhar cursor (sempre por cima) -------------------
     # Apenas desenha o cursor se uma mão for detectada
     if results.multi_hand_landmarks:
-        cursor_int = cursor_pos
-        # Cor verde, mas fica vermelha ao "clicar" (pinça)
-        cursor_color = (0, 255, 0) if not is_pinching else (0, 0, 255)
-        cv2.circle(img, cursor_int, 15, cursor_color, -1)
-        cv2.circle(img, cursor_int, 15, (255, 255, 255), 3)
+        # Não desenha o cursor se estiver tirando foto no modo Desenho
+        if not (current_screen == "DESENHO" and photo_app_state != "IDLE"):
+            cursor_int = cursor_pos
+            # Cor verde, mas fica vermelha ao "clicar" (pinça)
+            cursor_color = (0, 255, 0) if not is_pinching else (0, 0, 255)
+            cv2.circle(img, cursor_int, 15, cursor_color, -1)
+            cv2.circle(img, cursor_int, 15, (255, 255, 255), 3)
 
 
     # Mostrar Imagem Final
