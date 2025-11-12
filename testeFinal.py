@@ -57,51 +57,6 @@ tempo_por_frame = 1.0 / fps_target
 output_folder = "fotos"
 os.makedirs(output_folder, exist_ok=True)
 
-# ------------------- MUDANÇA: Carregar Sprites (Imagens) -------------------
-try:
-    # Carrega as imagens (-1 = carregar com canal alfa/transparência)
-    sprite_passaro = cv2.imread("passaro.png", -1)
-    sprite_cano_cima = cv2.imread("pipe_cima.png", -1)
-    sprite_cano_baixo = cv2.imread("pipe_baixo.png", -1)
-
-    if sprite_passaro is None or sprite_cano_cima is None or sprite_cano_baixo is None:
-        raise IOError("Nao foi possivel carregar um ou mais arquivos de sprite (passaro.png, pipe_cima.png, pipe_baixo.png)")
-    
-    # --- Define o tamanho dos sprites ---
-    # Pássaro (vamos definir um tamanho fixo)
-    BIRD_WIDTH, BIRD_HEIGHT = 85, 60 # (Largura, Altura) - Ajuste se necessário
-    sprite_passaro = cv2.resize(sprite_passaro, (BIRD_WIDTH, BIRD_HEIGHT))
-    
-    # --- MUDANÇA: Forçar o redimensionamento dos canos ---
-    # O usuário reportou que os canos estão muito grandes (ex: 508x608)
-    # Vamos definir um tamanho fixo para eles.
-    PIPE_TARGET_WIDTH = 150  # Largura do cano (em pixels)
-    PIPE_TARGET_HEIGHT = 600 # Altura do cano (para cobrir a tela)
-
-    # Redimensiona os sprites dos canos para o tamanho-alvo
-    sprite_cano_cima = cv2.resize(sprite_cano_cima, (PIPE_TARGET_WIDTH, PIPE_TARGET_HEIGHT))
-    sprite_cano_baixo = cv2.resize(sprite_cano_baixo, (PIPE_TARGET_WIDTH, PIPE_TARGET_HEIGHT))
-
-    # Atualiza as variáveis globais com o novo tamanho
-    PIPE_WIDTH, PIPE_HEIGHT = PIPE_TARGET_WIDTH, PIPE_TARGET_HEIGHT
-    # --- Fim da mudança ---
-
-    sprites_ok = True
-    print("Sprites do jogo (passaro, canos) carregados com sucesso!")
-
-except Exception as e:
-    print(f"----------------------------------------------------")
-    print(f"AVISO: Nao foi possivel carregar os sprites: {e}")
-    print(f"O jogo vai rodar no 'modo classico' (com circulos e retangulos).")
-    print(f"Verifique se os arquivos 'passaro.png', 'pipe_cima.png' e 'pipe_baixo.png' estao na pasta.")
-    print(f"----------------------------------------------------")
-    sprites_ok = False
-    # Define tamanhos padrão para o modo clássico
-    BIRD_WIDTH, BIRD_HEIGHT = 50, 50 # (Raio de 25)
-    PIPE_WIDTH = 120 # (Valor antigo)
-# --- Fim da mudança ---
-
-
 # ------------------- Estado da aplicação -------------------
 current_screen = "MENU"  # MENU, GESTOS, DESENHO, FOTO, JOGO
 # Cursor (usa média exponencial para suavização)
@@ -129,20 +84,64 @@ current_thickness = 12 # Pincel normal
 photo_app_state = "IDLE" # IDLE, ARMING, POSING, CAPTURED
 photo_timer_start_time = 0
 photo_flash_start_time = 0
-TIMER_PHOTO_HOLD = 3 # 3 segundos segurando a mão
+# --- MUDANÇA: Timers de Armar e Pose (CORRIGIDO) ---
+TIMER_ARMING = 2
+TIMER_POSING = 5
+# --- Fim da mudança ---
 
 # Jogo (para tela JOGO)
 game_state = "START"
 game_bird_y = HEIGHT // 2
+# --- MUDANÇA: Parâmetros do Pássaro (Sprite) ---
+BIRD_WIDTH, BIRD_HEIGHT = 85, 60 # (Largura, Altura) - Ajuste se necessário
+# --- Fim da mudança ---
 BIRD_X_POS = (WIDTH // 2) - 150 # Posição X fixa (mais à esquerda)
 game_pipes = []
 game_pipe_speed = 20     # Velocidade base dos canos
 game_pipe_gap = 220      # Vão base entre os canos
-game_pipe_width = PIPE_WIDTH # Usa a largura do sprite (ou o padrão)
+game_pipe_width = 150    # Largura do cano (em pixels)
 game_last_pipe_time = 0
 game_pipe_interval = 1.3 # Tempo entre os canos
 game_score = 0
 game_start_time = 0
+
+# ------------------- MUDANÇA: Carregar Sprites (Imagens) -------------------
+try:
+    # Carrega as imagens (-1 = carregar com canal alfa/transparência)
+    sprite_passaro = cv2.imread("passaro.png", -1)
+    sprite_cano_cima = cv2.imread("pipe_cima.png", -1)
+    sprite_cano_baixo = cv2.imread("pipe_baixo.png", -1)
+
+    if sprite_passaro is None or sprite_cano_cima is None or sprite_cano_baixo is None:
+        raise IOError("Nao foi possivel carregar um ou mais arquivos de sprite (passaro.png, pipe_cima.png, pipe_baixo.png)")
+    
+    # Redimensiona o pássaro
+    sprite_passaro = cv2.resize(sprite_passaro, (BIRD_WIDTH, BIRD_HEIGHT))
+    
+    # --- MUDANÇA: Forçar o redimensionamento dos canos ---
+    PIPE_TARGET_WIDTH = 150  # Largura do cano (em pixels)
+    PIPE_TARGET_HEIGHT = 600 # Altura do cano (para cobrir a tela)
+    sprite_cano_cima = cv2.resize(sprite_cano_cima, (PIPE_TARGET_WIDTH, PIPE_TARGET_HEIGHT))
+    sprite_cano_baixo = cv2.resize(sprite_cano_baixo, (PIPE_TARGET_WIDTH, PIPE_TARGET_HEIGHT))
+    # Atualiza as variáveis globais com o novo tamanho
+    game_pipe_width, PIPE_HEIGHT = PIPE_TARGET_WIDTH, PIPE_TARGET_HEIGHT # PIPE_HEIGHT usado na colisão
+    # --- Fim da mudança ---
+
+    sprites_ok = True
+    print("Sprites do jogo (passaro, canos) carregados com sucesso!")
+
+except Exception as e:
+    print(f"----------------------------------------------------")
+    print(f"AVISO: Nao foi possivel carregar os sprites: {e}")
+    print(f"O jogo vai rodar no 'modo classico' (com circulos e retangulos).")
+    print(f"Verifique se os arquivos 'passaro.png', 'pipe_cima.png' e 'pipe_baixo.png' estao na pasta.")
+    print(f"----------------------------------------------------")
+    sprites_ok = False
+    # Define tamanhos padrão para o modo clássico
+    BIRD_WIDTH, BIRD_HEIGHT = 50, 50 # (Raio de 25)
+    game_pipe_width = 120 # (Valor antigo)
+# --- Fim da mudança ---
+
 
 # ------------------- Funções de Detecção -------------------
 def distancia(p1, p2):
@@ -183,7 +182,6 @@ BTN_VOLTAR = (1030, 620, 1260, 700) # Botão de Voltar Padrão
 BTN_GAME_RESTART = (WIDTH // 2 - 200, HEIGHT // 2 + 100, WIDTH // 2 + 200, HEIGHT // 2 + 200)
 
 # Paleta de Desenho (Vertical na Direita)
-# Cores (BGR)
 PALETTE_X_START = 1080
 PALETTE_X_END = 1260
 BTN_DRAW_RED = (PALETTE_X_START, 20, PALETTE_X_END, 70)
@@ -225,7 +223,7 @@ def is_cursor_in_rect(cursor_xy, rect):
     x1, y1, x2, y2 = rect
     return x1 < x < x2 and y1 < y < y2
 
-# ------------------- MUDANÇA: Novas Funções de Sprite -------------------
+# ------------------- Novas Funções de Sprite -------------------
 def draw_sprite(background, sprite, x, y):
     """
     Desenha um sprite (imagem PNG com alfa) sobre o background.
@@ -239,17 +237,13 @@ def draw_sprite(background, sprite, x, y):
         
     x, y = int(x), int(y) # Posição (canto superior esquerdo)
 
-    # Se o sprite não tem canal Alfa, apenas desenha
     if channels < 4:
-        # TODO: Implementar desenho sem alfa se necessário
-        # Por agora, vamos focar no PNG com alfa
         print("Aviso: Sprite nao tem canal alfa (transparencia).")
         return
 
     # Extrair o canal alfa (transparência)
     alpha = sprite[:, :, 3] / 255.0 # (0.0 a 1.0)
-    alpha_inv = 1.0 - alpha
-
+    
     # Limites para não desenhar fora da tela (evita crash)
     y1, y2 = max(0, y), min(HEIGHT, y + h)
     x1, x2 = max(0, x), min(WIDTH, x + w)
@@ -270,7 +264,7 @@ def draw_sprite(background, sprite, x, y):
     
     # Redimensiona o alfa para 3D (para multiplicar pelos 3 canais BGR)
     alpha_3d = cv2.merge([alpha_cut, alpha_cut, alpha_cut])
-    alpha_inv_3d = cv2.merge([1.0-alpha_cut, 1.0-alpha_cut, 1.0-alpha_cut])
+    alpha_inv_3d = 1.0 - alpha_3d
 
     # Combinar as imagens (frente * alfa) + (fundo * 1-alfa)
     roi_bg = cv2.multiply(alpha_inv_3d, roi.astype(float))
@@ -292,7 +286,7 @@ def check_collision(bird_rect, pipe_rect):
         return False
     # Se chegou aqui, houve colisão
     return True
-# --- Fim da mudança ---
+# --- Fim das funções de Sprite ---
 
 # ------------------- Loop principal -------------------
 while True:
@@ -333,11 +327,9 @@ while True:
             
         handLms_nav = results.multi_hand_landmarks[nav_hand_index]
         
-        # Desenha a mão de navegação (apenas se não estiver tirando foto no modo Desenho)
+        # Desenha a mão de navegação
         if not (current_screen == "DESENHO" and photo_app_state != "IDLE"):
-             # --- MUDANÇA: Desenhando a mão no Jogo novamente ---
              mp_draw.draw_landmarks(img, handLms_nav, mp_hands.HAND_CONNECTIONS, estilo_ponto, estilo_linha)
-             # --- Fim da mudança ---
 
         # Extrai landmarks da mão de navegação
         lm_list_nav = []
@@ -354,7 +346,8 @@ while True:
         dedos_nav = detectar_dedos_vetorial(lm_list_nav)
         
         # Lógica de Clique (Pinça) - (Não clica se estiver em contagem)
-        if photo_app_state == "IDLE": # Só permite clicar se não estiver em contagem
+        # --- CORREÇÃO: A lógica da câmera do desenho também deve travar o clique ---
+        if photo_app_state == "IDLE" and not (current_screen == "DESENHO" and photo_app_state != "IDLE"): 
             pinch_dist = distancia(lm_list_nav[4], lm_list_nav[8]) # Polegar + Indicador
             is_pinching = (pinch_dist < CLICK_DISTANCE)
             
@@ -386,7 +379,6 @@ while True:
         draw_button(img, BTN_MENU_DESENHO, "Desenho")
         draw_button(img, BTN_MENU_FOTO, "Camera")
         
-        # --- MUDANÇA: Verifica se pygame E sprites estão ok ---
         if pygame_ok and sprites_ok:
             draw_button(img, BTN_MENU_JOGO, "Jogo")
         else:
@@ -408,7 +400,7 @@ while True:
                 photo_app_state = "IDLE"
                 photo_timer_start_time = 0 
             
-            elif is_cursor_in_rect(cursor_pos, BTN_MENU_JOGO) and pygame_ok and sprites_ok: # <-- MUDANÇA
+            elif is_cursor_in_rect(cursor_pos, BTN_MENU_JOGO) and pygame_ok and sprites_ok:
                 current_screen = "JOGO"
                 # Reseta o Jogo
                 game_state = "START"
@@ -418,7 +410,6 @@ while True:
                 game_start_time = time.time()
                 if pygame_ok and pygame.mixer.music.get_busy() == False:
                     pygame.mixer.music.play(-1) # Toca a música do jogo em loop
-            # --- Fim da mudança ---
 
     # --- TELA DE GESTOS ---
     elif current_screen == "GESTOS":
@@ -630,39 +621,52 @@ while True:
         overlay_text = ""
         countdown_text = ""
         
-        # --- MUDANÇA: Lógica de "Segurar Mão Aberta" por 3s (Corrigida) ---
+        # --- MUDANÇA: Lógica de "Armar" (2s) e "Pose" (5s) (CORRIGIDO) ---
         is_hand_open = (dedos_nav == [1, 1, 1, 1, 1])
         
+        # ESTADO 1: Ocioso, esperando a mão abrir
         if photo_app_state == "IDLE":
-            overlay_text = "Segure a mao aberta por 3s"
+            overlay_text = "Mostre a mao aberta para comecar"
+            if is_hand_open: # Só acontece se a mão foi detectada
+                photo_app_state = "ARMING" # Inicia o primeiro timer
+                photo_timer_start_time = time.time()
+                print("Mão aberta detectada! Armando em 2s...")
+
+        # ESTADO 2: Mão detectada, contando 2s para "Armar"
+        # Este bloco agora roda mesmo se a mão desaparecer
+        elif photo_app_state == "ARMING": 
+            time_elapsed = time.time() - photo_timer_start_time
+            countdown_value = TIMER_ARMING - int(time_elapsed)
             
-            if is_hand_open:
-                # Se a mão está aberta, inicia o timer (se não tiver começado)
-                if photo_timer_start_time == 0:
-                    photo_timer_start_time = time.time()
-                
-                time_held = time.time() - photo_timer_start_time
-                countdown_value = TIMER_PHOTO_HOLD - int(time_held)
+            if countdown_value > 0:
                 countdown_text = str(countdown_value)
-                
-                # Se segurou pelos 3 segundos
-                if time_held >= TIMER_PHOTO_HOLD:
-                    # Tirar a foto
-                    filename = os.path.join(output_folder, f"foto_normal_{int(time.time())}.jpg")
-                    img_clean_flipped = cv2.flip(img_raw, 1) # Salva a imagem limpa e flipada
-                    cv2.imwrite(filename, img_clean_flipped) 
-                    print(f"Foto salva: {filename}")
-                    
-                    photo_app_state = "CAPTURED"
-                    photo_flash_start_time = time.time()
-                    photo_timer_start_time = 0 # Reseta o timer
-                    
+                overlay_text = "Prepare-se..."
             else:
-                # Se a mão não estiver aberta, reseta o timer
-                photo_timer_start_time = 0
-                countdown_text = "" # Limpa a contagem se a mão for solta
+                # Transição para o próximo estado
+                photo_app_state = "POSING"
+                photo_timer_start_time = time.time() # Reseta o timer
+                print("Armado! Faca a pose...")
+        
+        # ESTADO 3: Contando 5s para a "Pose"
+        # Este bloco agora roda mesmo se a mão desaparecer
+        elif photo_app_state == "POSING": 
+            time_elapsed = time.time() - photo_timer_start_time
+            countdown_value = TIMER_POSING - int(time_elapsed)
+            
+            if countdown_value > 0:
+                countdown_text = str(countdown_value)
+                overlay_text = "Faca a pose!"
+            else:
+                # Tirar a foto
+                filename = os.path.join(output_folder, f"foto_normal_{int(time.time())}.jpg")
+                img_clean_flipped = cv2.flip(img_raw, 1) # Salva a imagem limpa e flipada
+                cv2.imwrite(filename, img_clean_flipped) 
+                print(f"Foto salva: {filename}")
                 
-        # Estado de feedback (flash)
+                photo_app_state = "CAPTURED"
+                photo_flash_start_time = time.time()
+        
+        # ESTADO 4: A foto foi tirada, mostrar feedback
         if photo_app_state == "CAPTURED":
         # --- Fim da mudança ---
             
@@ -695,9 +699,11 @@ while True:
     # --- TELA DO JOGO ---
     elif current_screen == "JOGO" and pygame_ok:
         
-        # Fundo azul 50/50
+        # --- MUDANÇA: Fundo azul 50/50 ---
         light_blue_bg = np.full_like(img, (255, 230, 200)) # BGR: Azul claro
+        # 50% câmera, 50% fundo azul
         img = cv2.addWeighted(img, 0.5, light_blue_bg, 0.5, 0)
+        # --- Fim da mudança ---
         
         # Lógica do Jogo
         if game_state == "START":
@@ -835,9 +841,8 @@ while True:
 
     # ------------------- Desenhar cursor (sempre por cima) -------------------
     if results.multi_hand_landmarks:
-        # Não desenha o cursor se estiver tirando foto no modo Desenho
-       # --- MUDANÇA: Voltando a desenhar o cursor no Jogo ---
-        if not (current_screen == "DESENHO" and photo_app_state != "IDLE"): # <-- Removido 'and current_screen != "JOGO"'
+        # --- MUDANÇA: Voltando a desenhar o cursor no Jogo ---
+        if not (current_screen == "DESENHO" and photo_app_state != "IDLE"):
         # --- Fim da mudança ---
             cursor_int = cursor_pos
             # Cor verde, mas fica vermelha ao "clicar" (pinça)
