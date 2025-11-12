@@ -57,6 +57,51 @@ tempo_por_frame = 1.0 / fps_target
 output_folder = "fotos"
 os.makedirs(output_folder, exist_ok=True)
 
+# ------------------- MUDANÇA: Carregar Sprites (Imagens) -------------------
+try:
+    # Carrega as imagens (-1 = carregar com canal alfa/transparência)
+    sprite_passaro = cv2.imread("passaro.png", -1)
+    sprite_cano_cima = cv2.imread("pipe_cima.png", -1)
+    sprite_cano_baixo = cv2.imread("pipe_baixo.png", -1)
+
+    if sprite_passaro is None or sprite_cano_cima is None or sprite_cano_baixo is None:
+        raise IOError("Nao foi possivel carregar um ou mais arquivos de sprite (passaro.png, pipe_cima.png, pipe_baixo.png)")
+    
+    # --- Define o tamanho dos sprites ---
+    # Pássaro (vamos definir um tamanho fixo)
+    BIRD_WIDTH, BIRD_HEIGHT = 85, 60 # (Largura, Altura) - Ajuste se necessário
+    sprite_passaro = cv2.resize(sprite_passaro, (BIRD_WIDTH, BIRD_HEIGHT))
+    
+    # --- MUDANÇA: Forçar o redimensionamento dos canos ---
+    # O usuário reportou que os canos estão muito grandes (ex: 508x608)
+    # Vamos definir um tamanho fixo para eles.
+    PIPE_TARGET_WIDTH = 150  # Largura do cano (em pixels)
+    PIPE_TARGET_HEIGHT = 600 # Altura do cano (para cobrir a tela)
+
+    # Redimensiona os sprites dos canos para o tamanho-alvo
+    sprite_cano_cima = cv2.resize(sprite_cano_cima, (PIPE_TARGET_WIDTH, PIPE_TARGET_HEIGHT))
+    sprite_cano_baixo = cv2.resize(sprite_cano_baixo, (PIPE_TARGET_WIDTH, PIPE_TARGET_HEIGHT))
+
+    # Atualiza as variáveis globais com o novo tamanho
+    PIPE_WIDTH, PIPE_HEIGHT = PIPE_TARGET_WIDTH, PIPE_TARGET_HEIGHT
+    # --- Fim da mudança ---
+
+    sprites_ok = True
+    print("Sprites do jogo (passaro, canos) carregados com sucesso!")
+
+except Exception as e:
+    print(f"----------------------------------------------------")
+    print(f"AVISO: Nao foi possivel carregar os sprites: {e}")
+    print(f"O jogo vai rodar no 'modo classico' (com circulos e retangulos).")
+    print(f"Verifique se os arquivos 'passaro.png', 'pipe_cima.png' e 'pipe_baixo.png' estao na pasta.")
+    print(f"----------------------------------------------------")
+    sprites_ok = False
+    # Define tamanhos padrão para o modo clássico
+    BIRD_WIDTH, BIRD_HEIGHT = 50, 50 # (Raio de 25)
+    PIPE_WIDTH = 120 # (Valor antigo)
+# --- Fim da mudança ---
+
+
 # ------------------- Estado da aplicação -------------------
 current_screen = "MENU"  # MENU, GESTOS, DESENHO, FOTO, JOGO
 # Cursor (usa média exponencial para suavização)
@@ -75,27 +120,25 @@ gesture_buffer = deque(maxlen=BUFFER_SIZE)
 stable_gesture_text = ""
 
 # Desenho (para tela DESENHO)
-canvas = np.zeros((HEIGHT, WIDTH, 3), dtype=np.uint8)
+canvas = np.ones((HEIGHT, WIDTH, 3), dtype=np.uint8) * 255 # Começa BRANCO
 last_draw_point = None # Para desenhar linhas contínuas
-current_color = (255, 255, 255)  # branco
+current_color = (0, 0, 0)  # Pincel padrão agora é PRETO
 current_thickness = 12 # Pincel normal
 
 # Câmera (para tela FOTO e agora DESENHO)
 photo_app_state = "IDLE" # IDLE, ARMING, POSING, CAPTURED
 photo_timer_start_time = 0
 photo_flash_start_time = 0
-TIMER_ARMING = 2
-TIMER_POSING = 5
+TIMER_PHOTO_HOLD = 3 # 3 segundos segurando a mão
 
 # Jogo (para tela JOGO)
 game_state = "START"
 game_bird_y = HEIGHT // 2
-game_bird_radius = 25
-# --- Controle "Seguir o Dedo" ---
+BIRD_X_POS = (WIDTH // 2) - 150 # Posição X fixa (mais à esquerda)
 game_pipes = []
-game_pipe_speed = 20     # Velocidade base dos canos (MAIS DIFÍCIL)
-game_pipe_gap = 220      # Vão base entre os canos (MAIS DIFÍCIL)
-game_pipe_width = 120
+game_pipe_speed = 20     # Velocidade base dos canos
+game_pipe_gap = 220      # Vão base entre os canos
+game_pipe_width = PIPE_WIDTH # Usa a largura do sprite (ou o padrão)
 game_last_pipe_time = 0
 game_pipe_interval = 1.3 # Tempo entre os canos
 game_score = 0
@@ -147,11 +190,10 @@ BTN_DRAW_RED = (PALETTE_X_START, 20, PALETTE_X_END, 70)
 BTN_DRAW_GREEN = (PALETTE_X_START, 80, PALETTE_X_END, 130)
 BTN_DRAW_BLUE = (PALETTE_X_START, 140, PALETTE_X_END, 190)
 BTN_DRAW_YELLOW = (PALETTE_X_START, 200, PALETTE_X_END, 250)
-BTN_DRAW_BLACK = (PALETTE_X_START, 260, PALETTE_X_END, 310) # <-- Renomeado
-BTN_DRAW_WHITE = (PALETTE_X_START, 320, PALETTE_X_END, 370)
-BTN_DRAW_ERASER = (PALETTE_X_START, 380, PALETTE_X_END, 430)
-BTN_DRAW_CLEAR = (PALETTE_X_START, 440, PALETTE_X_END, 490)
-BTN_DRAW_PHOTO = (PALETTE_X_START, 500, PALETTE_X_END, 550) # Botão de Foto
+BTN_DRAW_BLACK = (PALETTE_X_START, 260, PALETTE_X_END, 310)
+BTN_DRAW_ERASER = (PALETTE_X_START, 320, PALETTE_X_END, 370)
+BTN_DRAW_CLEAR = (PALETTE_X_START, 380, PALETTE_X_END, 430)
+BTN_DRAW_PHOTO = (PALETTE_X_START, 440, PALETTE_X_END, 490)
 
 
 def draw_button(img, rect, text, bg_color=(60, 120, 190), is_selected=False):
@@ -182,6 +224,75 @@ def is_cursor_in_rect(cursor_xy, rect):
     x, y = cursor_xy
     x1, y1, x2, y2 = rect
     return x1 < x < x2 and y1 < y < y2
+
+# ------------------- MUDANÇA: Novas Funções de Sprite -------------------
+def draw_sprite(background, sprite, x, y):
+    """
+    Desenha um sprite (imagem PNG com alfa) sobre o background.
+    x, y é a posição do canto SUPERIOR ESQUERDO do sprite.
+    """
+    try:
+        h, w, channels = sprite.shape
+    except ValueError:
+        print("Erro: Sprite com formato inválido. Precisa de 4 canais (RGBA).")
+        return
+        
+    x, y = int(x), int(y) # Posição (canto superior esquerdo)
+
+    # Se o sprite não tem canal Alfa, apenas desenha
+    if channels < 4:
+        # TODO: Implementar desenho sem alfa se necessário
+        # Por agora, vamos focar no PNG com alfa
+        print("Aviso: Sprite nao tem canal alfa (transparencia).")
+        return
+
+    # Extrair o canal alfa (transparência)
+    alpha = sprite[:, :, 3] / 255.0 # (0.0 a 1.0)
+    alpha_inv = 1.0 - alpha
+
+    # Limites para não desenhar fora da tela (evita crash)
+    y1, y2 = max(0, y), min(HEIGHT, y + h)
+    x1, x2 = max(0, x), min(WIDTH, x + w)
+    
+    # Limites do sprite (caso ele esteja cortado na borda)
+    sprite_y1, sprite_y2 = max(0, -y), min(h, HEIGHT - y)
+    sprite_x1, sprite_x2 = max(0, -x), min(w, WIDTH - x)
+
+    # Se o sprite estiver 100% fora da tela
+    if y1 >= y2 or x1 >= x2 or sprite_y1 >= sprite_y2 or sprite_x1 >= sprite_x2:
+        return
+
+    # Pegar a ROI (Region of Interest) do background
+    roi = background[y1:y2, x1:x2]
+    # Pegar o sprite cortado (e seu alfa)
+    sprite_cut = sprite[sprite_y1:sprite_y2, sprite_x1:sprite_x2]
+    alpha_cut = alpha[sprite_y1:sprite_y2, sprite_x1:sprite_x2]
+    
+    # Redimensiona o alfa para 3D (para multiplicar pelos 3 canais BGR)
+    alpha_3d = cv2.merge([alpha_cut, alpha_cut, alpha_cut])
+    alpha_inv_3d = cv2.merge([1.0-alpha_cut, 1.0-alpha_cut, 1.0-alpha_cut])
+
+    # Combinar as imagens (frente * alfa) + (fundo * 1-alfa)
+    roi_bg = cv2.multiply(alpha_inv_3d, roi.astype(float))
+    sprite_fg = cv2.multiply(alpha_3d, sprite_cut[:,:,:3].astype(float))
+    
+    # Junta as duas partes e coloca de volta no background
+    background[y1:y2, x1:x2] = cv2.add(roi_bg, sprite_fg).astype(np.uint8)
+
+def check_collision(bird_rect, pipe_rect):
+    """Verifica colisão de Bounding Box (AABB)"""
+    bx1, by1, bx2, by2 = bird_rect
+    px1, py1, px2, py2 = pipe_rect
+    
+    # Se não houver sobreposição em X
+    if bx1 > px2 or bx2 < px1:
+        return False
+    # Se não houver sobreposição em Y
+    if by1 > py2 or by2 < py1:
+        return False
+    # Se chegou aqui, houve colisão
+    return True
+# --- Fim da mudança ---
 
 # ------------------- Loop principal -------------------
 while True:
@@ -224,7 +335,9 @@ while True:
         
         # Desenha a mão de navegação (apenas se não estiver tirando foto no modo Desenho)
         if not (current_screen == "DESENHO" and photo_app_state != "IDLE"):
+             # --- MUDANÇA: Desenhando a mão no Jogo novamente ---
              mp_draw.draw_landmarks(img, handLms_nav, mp_hands.HAND_CONNECTIONS, estilo_ponto, estilo_linha)
+             # --- Fim da mudança ---
 
         # Extrai landmarks da mão de navegação
         lm_list_nav = []
@@ -273,7 +386,8 @@ while True:
         draw_button(img, BTN_MENU_DESENHO, "Desenho")
         draw_button(img, BTN_MENU_FOTO, "Camera")
         
-        if pygame_ok:
+        # --- MUDANÇA: Verifica se pygame E sprites estão ok ---
+        if pygame_ok and sprites_ok:
             draw_button(img, BTN_MENU_JOGO, "Jogo")
         else:
             draw_button(img, BTN_MENU_JOGO, "Jogo (OFF)", bg_color=(100,100,100)) # Botão desabilitado
@@ -285,15 +399,16 @@ while True:
             
             elif is_cursor_in_rect(cursor_pos, BTN_MENU_DESENHO):
                 current_screen = "DESENHO"
-                canvas.fill(0) # Limpa o canvas
+                canvas.fill(255) # Limpa com BRANCO
                 last_draw_point = None
-                photo_app_state = "IDLE" # Garante que o timer da foto esteja resetado
+                photo_app_state = "IDLE" 
             
             elif is_cursor_in_rect(cursor_pos, BTN_MENU_FOTO):
                 current_screen = "FOTO"
-                photo_app_state = "IDLE" # Reseta o estado da câmera
+                photo_app_state = "IDLE"
+                photo_timer_start_time = 0 
             
-            elif is_cursor_in_rect(cursor_pos, BTN_MENU_JOGO) and pygame_ok:
+            elif is_cursor_in_rect(cursor_pos, BTN_MENU_JOGO) and pygame_ok and sprites_ok: # <-- MUDANÇA
                 current_screen = "JOGO"
                 # Reseta o Jogo
                 game_state = "START"
@@ -303,6 +418,7 @@ while True:
                 game_start_time = time.time()
                 if pygame_ok and pygame.mixer.music.get_busy() == False:
                     pygame.mixer.music.play(-1) # Toca a música do jogo em loop
+            # --- Fim da mudança ---
 
     # --- TELA DE GESTOS ---
     elif current_screen == "GESTOS":
@@ -360,8 +476,14 @@ while True:
         overlay_text = ""
         countdown_text = ""
         
-        # A imagem que queremos salvar (câmera + canvas, ANTES da UI)
-        img_with_drawing = cv2.addWeighted(img.copy(), 1.0, canvas, 1.0, 0)
+        # Lógica de máscara para canvas BRANCO
+        img_gray = cv2.cvtColor(canvas, cv2.COLOR_BGR2GRAY)
+        # THRESH_BINARY_INV: Desenho (0-254) vira 255 (branco), Fundo (255) vira 0 (preto)
+        _, mask = cv2.threshold(img_gray, 254, 255, cv2.THRESH_BINARY_INV) 
+
+        img_bg = cv2.bitwise_and(img, img, mask=cv2.bitwise_not(mask))
+        img_fg = cv2.bitwise_and(canvas, canvas, mask=mask)
+        img_with_drawing = cv2.add(img_bg, img_fg)
         
         # A imagem que vamos mostrar (com UI por cima)
         img_display = img_with_drawing.copy()
@@ -405,21 +527,17 @@ while True:
             else:
                 photo_app_state = "IDLE" # Reseta
                 
-        # --- MUDANÇA: Desenha a nova paleta de cores (na img_display) ---
+        # Desenha a nova paleta de cores (na img_display)
         draw_button(img_display, BTN_DRAW_RED, "Vermelho", bg_color=(0,0,255), is_selected=(current_color == (0,0,255)))
         draw_button(img_display, BTN_DRAW_GREEN, "Verde", bg_color=(0,255,0), is_selected=(current_color == (0,255,0)))
         draw_button(img_display, BTN_DRAW_BLUE, "Azul", bg_color=(255,0,0), is_selected=(current_color == (255,0,0)))
         draw_button(img_display, BTN_DRAW_YELLOW, "Amarelo", bg_color=(0,255,255), is_selected=(current_color == (0,255,255)))
         
-        # --- MUDANÇA: Botão "Rosa" -> "Preto" (e lógica de seleção) ---
-        draw_button(img_display, BTN_DRAW_BLACK, "Preto", bg_color=(50,50,50), is_selected=(current_color == (1,1,1)))
-        # --- Fim da mudança ---
+        # Botão "Preto" (selecionado se for preto e fino)
+        draw_button(img_display, BTN_DRAW_BLACK, "Preto", bg_color=(50,50,50), is_selected=(current_color == (0,0,0) and current_thickness == 12))
         
-        draw_button(img_display, BTN_DRAW_WHITE, "Branco", bg_color=(255,255,255), is_selected=(current_color == (255,255,255)))
-        
-        # --- MUDANÇA: Lógica de seleção da Borracha ---
-        draw_button(img_display, BTN_DRAW_ERASER, "Borracha", bg_color=(100,100,100), is_selected=(current_color == (0,0,0)))
-        # --- Fim da mudança ---
+        # Botão "Borracha" (selecionado se for branco e grosso)
+        draw_button(img_display, BTN_DRAW_ERASER, "Borracha", bg_color=(200,200,200), is_selected=(current_color == (255,255,255)))
         
         draw_button(img_display, BTN_DRAW_CLEAR, "Limpar")
         draw_button(img_display, BTN_DRAW_PHOTO, "Foto") # Novo botão de foto
@@ -444,24 +562,19 @@ while True:
                 current_color = (0, 255, 255)
                 current_thickness = 12
             
-            # --- MUDANÇA: Clique no "Preto" (usa 1,1,1) ---
+            # Clique no "Preto"
             elif is_cursor_in_rect(cursor_pos, BTN_DRAW_BLACK):
-                current_color = (1, 1, 1) # MUDADO PARA "QUASE PRETO"
+                current_color = (0, 0, 0) # PRETO
                 current_thickness = 12
-            # --- Fim da mudança ---
                 
-            elif is_cursor_in_rect(cursor_pos, BTN_DRAW_WHITE):
-                current_color = (255, 255, 255)
-                current_thickness = 12
-            
-            # Botão Borracha (usa 0,0,0)
+            # Botão Borracha (agora é BRANCO)
             elif is_cursor_in_rect(cursor_pos, BTN_DRAW_ERASER):
-                current_color = (0, 0, 0) # Cor do canvas
+                current_color = (255, 255, 255) # Cor do canvas (BRANCO)
                 current_thickness = 40 # Borracha mais grossa
             
             # Botão Limpar Tela
             elif is_cursor_in_rect(cursor_pos, BTN_DRAW_CLEAR):
-                canvas.fill(0) # Preenche o canvas com preto
+                canvas.fill(255) # Preenche o canvas com BRANCO
             
             # Botão de Foto
             elif is_cursor_in_rect(cursor_pos, BTN_DRAW_PHOTO):
@@ -476,8 +589,7 @@ while True:
             is_cursor_in_rect(cursor_pos, BTN_DRAW_GREEN) or
             is_cursor_in_rect(cursor_pos, BTN_DRAW_BLUE) or
             is_cursor_in_rect(cursor_pos, BTN_DRAW_YELLOW) or
-            is_cursor_in_rect(cursor_pos, BTN_DRAW_BLACK) or # <-- MUDANÇA
-            is_cursor_in_rect(cursor_pos, BTN_DRAW_WHITE) or
+            is_cursor_in_rect(cursor_pos, BTN_DRAW_BLACK) or
             is_cursor_in_rect(cursor_pos, BTN_DRAW_ERASER) or
             is_cursor_in_rect(cursor_pos, BTN_DRAW_CLEAR) or
             is_cursor_in_rect(cursor_pos, BTN_DRAW_PHOTO)
@@ -497,7 +609,9 @@ while True:
         
         # Desenha os textos da Câmera (se houver) sobre a 'img_display'
         if overlay_text:
-            cv2.putText(img_display, overlay_text, (50, 70), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0,0,0), 6)
+            # Sombra
+            cv2.putText(img_display, overlay_text, (50+2, 70+2), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0,0,0), 6)
+            # Texto
             cv2.putText(img_display, overlay_text, (50, 70), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255,255,255), 2)
         if countdown_text:
             font_scale = 5.0; thickness = 15
@@ -516,52 +630,49 @@ while True:
         overlay_text = ""
         countdown_text = ""
         
-        # Lógica de estado da Câmera (copiado de testefoto.py)
+        # --- MUDANÇA: Lógica de "Segurar Mão Aberta" por 3s (Corrigida) ---
+        is_hand_open = (dedos_nav == [1, 1, 1, 1, 1])
+        
         if photo_app_state == "IDLE":
-            overlay_text = "Mostre a mao aberta para comecar"
-            # Mão aberta (usando dedos_nav da mão principal)
-            if dedos_nav == [1, 1, 1, 1, 1]:
-                photo_app_state = "ARMING"
-                photo_timer_start_time = time.time()
-                print("Mão aberta detectada! Armando em 2s...")
-
-        elif photo_app_state == "ARMING": 
-            time_elapsed = time.time() - photo_timer_start_time
-            countdown_value = TIMER_ARMING - int(time_elapsed)
+            overlay_text = "Segure a mao aberta por 3s"
             
-            if countdown_value > 0:
-                countdown_text = str(countdown_value)
-                overlay_text = "Prepare-se..."
-            else:
-                photo_app_state = "POSING"
-                photo_timer_start_time = time.time()
-                print("Armado! Faca a pose...")
-        
-        elif photo_app_state == "POSING": 
-            time_elapsed = time.time() - photo_timer_start_time
-            countdown_value = TIMER_POSING - int(time_elapsed)
-            
-            if countdown_value > 0:
-                countdown_text = str(countdown_value)
-                overlay_text = "Faca a pose!"
-            else:
-                # Tirar a foto
-                filename = os.path.join(output_folder, f"foto_normal_{int(time.time())}.jpg")
-                img_clean_flipped = cv2.flip(img_raw, 1) # Salva a imagem limpa e flipada
-                cv2.imwrite(filename, img_clean_flipped) 
-                print(f"Foto salva: {filename}")
+            if is_hand_open:
+                # Se a mão está aberta, inicia o timer (se não tiver começado)
+                if photo_timer_start_time == 0:
+                    photo_timer_start_time = time.time()
                 
-                photo_app_state = "CAPTURED"
-                photo_flash_start_time = time.time()
-        
+                time_held = time.time() - photo_timer_start_time
+                countdown_value = TIMER_PHOTO_HOLD - int(time_held)
+                countdown_text = str(countdown_value)
+                
+                # Se segurou pelos 3 segundos
+                if time_held >= TIMER_PHOTO_HOLD:
+                    # Tirar a foto
+                    filename = os.path.join(output_folder, f"foto_normal_{int(time.time())}.jpg")
+                    img_clean_flipped = cv2.flip(img_raw, 1) # Salva a imagem limpa e flipada
+                    cv2.imwrite(filename, img_clean_flipped) 
+                    print(f"Foto salva: {filename}")
+                    
+                    photo_app_state = "CAPTURED"
+                    photo_flash_start_time = time.time()
+                    photo_timer_start_time = 0 # Reseta o timer
+                    
+            else:
+                # Se a mão não estiver aberta, reseta o timer
+                photo_timer_start_time = 0
+                countdown_text = "" # Limpa a contagem se a mão for solta
+                
         # Estado de feedback (flash)
         if photo_app_state == "CAPTURED":
+        # --- Fim da mudança ---
+            
             overlay_text = "FOTO CAPTURADA!"
             if time.time() - photo_flash_start_time < 0.5:
                 cv2.rectangle(img, (0, 0), (WIDTH, HEIGHT), (255, 255, 255), -1)
             else:
                 # Volta ao Menu automaticamente
                 current_screen = "MENU"
+                photo_app_state = "IDLE" # <-- CORREÇÃO DO BUG DA PINÇA
                 
         # Desenhar textos da Câmera
         if overlay_text:
@@ -579,14 +690,14 @@ while True:
         draw_button(img, BTN_VOLTAR, "Voltar")
         if click_detected and is_cursor_in_rect(cursor_pos, BTN_VOLTAR):
             current_screen = "MENU"
+            photo_app_state = "IDLE" # Garante o reset
             
     # --- TELA DO JOGO ---
     elif current_screen == "JOGO" and pygame_ok:
         
-        # Fundo azul claro (MAIS SUAVE)
+        # Fundo azul 50/50
         light_blue_bg = np.full_like(img, (255, 230, 200)) # BGR: Azul claro
-        # 70% câmera, 30% fundo azul
-        img = cv2.addWeighted(img, 0.7, light_blue_bg, 0.3, 0)
+        img = cv2.addWeighted(img, 0.5, light_blue_bg, 0.5, 0)
         
         # Lógica do Jogo
         if game_state == "START":
@@ -615,25 +726,39 @@ while True:
             current_time = time.time()
             if current_time - game_last_pipe_time > game_pipe_interval:
                 h = random.randint(150, HEIGHT - 150 - current_pipe_gap)
-                game_pipes.append({"x": WIDTH, "height": h, "color": (0, 200, 0)})
+                game_pipes.append({"x": WIDTH, "height": h})
                 game_last_pipe_time = current_time
 
             new_pipes = []
             for pipe in game_pipes:
                 pipe["x"] -= current_pipe_speed
-                
                 x, h = pipe["x"], pipe["height"]
-                color = pipe["color"]
                 
-                # Cano de cima
-                cv2.rectangle(img, (x, 0), (x + game_pipe_width, h), color, -1)
-                # Cano de baixo
-                cv2.rectangle(img, (x, h + current_pipe_gap), (x + game_pipe_width, HEIGHT), color, -1)
+                # --- MUDANÇA: Desenho de Canos 3D (ou fallback) ---
+                if sprites_ok:
+                    # 1. Cano Cima
+                    pipe_cima_y = h - PIPE_HEIGHT # Alinha a base do sprite com a altura h
+                    draw_sprite(img, sprite_cano_cima, x, pipe_cima_y)
+                    # 2. Cano Baixo
+                    pipe_baixo_y = h + current_pipe_gap
+                    draw_sprite(img, sprite_cano_baixo, x, pipe_baixo_y)
+                else:
+                    # Fallback para retângulos se os sprites falharam
+                    cv2.rectangle(img, (x, 0), (x + game_pipe_width, h), (0, 200, 0), -1)
+                    cv2.rectangle(img, (x, h + current_pipe_gap), (x + game_pipe_width, HEIGHT), (0, 200, 0), -1)
+                # --- Fim da mudança ---
 
-                # Colisão com canos
-                if (game_bird_y - game_bird_radius < h or game_bird_y + game_bird_radius > h + current_pipe_gap) and \
-                   (WIDTH // 2 + game_bird_radius > x and WIDTH // 2 - game_bird_radius < x + game_pipe_width) and \
+                # --- MUDANÇA: Lógica de Colisão (Sprite) ---
+                # Bounding Box do Pássaro
+                bird_rect = (BIRD_X_POS, game_bird_y - BIRD_HEIGHT // 2, 
+                             BIRD_X_POS + BIRD_WIDTH, game_bird_y + BIRD_HEIGHT // 2)
+                # Bounding Box dos Canos
+                pipe_cima_rect = (x, 0, x + game_pipe_width, h)
+                pipe_baixo_rect = (x, h + current_pipe_gap, x + game_pipe_width, HEIGHT)
+
+                if (check_collision(bird_rect, pipe_cima_rect) or check_collision(bird_rect, pipe_baixo_rect)) and \
                    game_state != "GAME_OVER":
+                # --- Fim da mudança ---
                     
                     # Tirar foto ao perder
                     filename = os.path.join(output_folder, f"foto_gameover_{int(time.time())}.jpg")
@@ -645,7 +770,9 @@ while True:
                     if pygame_ok: pygame.mixer.music.stop()
 
                 # Pontuação
-                if x + game_pipe_width < (WIDTH // 2 - game_bird_radius) and "counted" not in pipe:
+                # --- MUDANÇA: Posição X do pássaro ---
+                if x + game_pipe_width < BIRD_X_POS and "counted" not in pipe:
+                # --- Fim da mudança ---
                     game_score += 1
                     pipe["counted"] = True
                     if ponto_sound:
@@ -656,7 +783,7 @@ while True:
             game_pipes = new_pipes
 
             # Checa colisão com teto/chão
-            if (game_bird_y - game_bird_radius <= 0 or game_bird_y + game_bird_radius >= HEIGHT) and game_state != "GAME_OVER":
+            if (game_bird_y - BIRD_HEIGHT // 2 <= 0 or game_bird_y + BIRD_HEIGHT // 2 >= HEIGHT) and game_state != "GAME_OVER":
                 
                 # Tirar foto ao perder
                 filename = os.path.join(output_folder, f"foto_gameover_{int(time.time())}.jpg")
@@ -667,8 +794,15 @@ while True:
                 game_state = "GAME_OVER"
                 if pygame_ok: pygame.mixer.music.stop()
             
-            # Desenha Pássaro (posição X fixa)
-            cv2.circle(img, (WIDTH // 2, game_bird_y), game_bird_radius, (0, 255, 255), -1)
+            # --- MUDANÇA: Desenhar Pássaro (Sprite) ---
+            if sprites_ok:
+                # Converte o centro (game_bird_y) para canto superior esquerdo
+                bird_draw_y = game_bird_y - BIRD_HEIGHT // 2
+                draw_sprite(img, sprite_passaro, BIRD_X_POS, bird_draw_y)
+            else:
+                # Fallback para círculo
+                cv2.circle(img, (BIRD_X_POS + BIRD_WIDTH // 2, game_bird_y), BIRD_WIDTH // 2, (0, 255, 255), -1)
+            # --- Fim da mudança ---
             
             # Pontos
             cv2.putText(img, f"Pontos: {game_score}", (50, 80), cv2.FONT_HERSHEY_SIMPLEX, 2, (0,0,0), 8)
@@ -678,10 +812,9 @@ while True:
             cv2.putText(img, "GAME OVER", (WIDTH // 2 - 280, HEIGHT // 2 - 150), cv2.FONT_HERSHEY_SIMPLEX, 3, (0, 0, 255), 10)
             cv2.putText(img, f"Pontos: {game_score}", (WIDTH // 2 - 120, HEIGHT // 2 + 50), cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 255, 255), 5)
             
-            # Lógica de botões (em vez de pinça)
+            # Lógica de botões
             draw_button(img, BTN_GAME_RESTART, "REINICIAR", bg_color=(0, 200, 0))
             
-            # Checa o clique (pinça) nos botões
             if click_detected:
                 if is_cursor_in_rect(cursor_pos, BTN_GAME_RESTART):
                     # Reinicia o jogo
@@ -691,22 +824,21 @@ while True:
                     game_pipes = []
                     game_bird_y = HEIGHT // 2
                     if pygame_ok: pygame.mixer.music.play(-1) # Reinicia a música
-                
-                # O botão Sair (BTN_VOLTAR) será checado abaixo na UI
             
         # Botão Voltar (sempre visível no jogo, incluindo Game Over)
         draw_button(img, BTN_VOLTAR, "Sair")
         
-        # Checa clique no "Sair" (funciona no PLAYING e GAME_OVER)
+        # Checa clique no "Sair"
         if click_detected and is_cursor_in_rect(cursor_pos, BTN_VOLTAR):
             current_screen = "MENU"
             if pygame_ok: pygame.mixer.music.stop() # Para a música ao sair
 
     # ------------------- Desenhar cursor (sempre por cima) -------------------
-    # Apenas desenha o cursor se uma mão for detectada
     if results.multi_hand_landmarks:
         # Não desenha o cursor se estiver tirando foto no modo Desenho
-        if not (current_screen == "DESENHO" and photo_app_state != "IDLE"):
+       # --- MUDANÇA: Voltando a desenhar o cursor no Jogo ---
+        if not (current_screen == "DESENHO" and photo_app_state != "IDLE"): # <-- Removido 'and current_screen != "JOGO"'
+        # --- Fim da mudança ---
             cursor_int = cursor_pos
             # Cor verde, mas fica vermelha ao "clicar" (pinça)
             cursor_color = (0, 255, 0) if not is_pinching else (0, 0, 255)
